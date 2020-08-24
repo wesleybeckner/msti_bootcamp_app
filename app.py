@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import dash
+import dash_table
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import plotly.express as px
+import json
 
 import numpy as np
 import pandas as pd
@@ -40,8 +42,9 @@ mult_choice_columns = style + myers + quiz
 ranking_columns = ['Learning Topics', 'Application Topics', 'Language Topics']
 question = ranking_columns + number_columns + mult_choice_columns + ['Myers-Briggs Letters']
 df.columns = columns
+df = df[[i for i in df.columns if i not in identity]]
 
-def make_figure(question = ranking_columns + number_columns + mult_choice_columns + ['Myers-Briggs Letters']):
+def make_figure(question, df=df):
     fig = go.Figure()
     if question in number_columns:
         sub_df = df[question].value_counts()
@@ -74,11 +77,16 @@ def make_figure(question = ranking_columns + number_columns + mult_choice_column
             second_value = to_plot.loc[fnmatch.filter(to_plot.index, '*–*{}* *'.format(pair[1]))].sum()
             fig.add_trace(go.Bar(name=pair[0], x=[pair[0]], y=first_value,  marker_color='orchid', showlegend=False))
             fig.add_trace(go.Bar(name=pair[1], x=[pair[1]], y=second_value, marker_color='coral', showlegend=False))
-
+    fig.update_layout(clickmode='event+select')
     return fig
 
-
-app.layout = html.Div(children=[
+HIDDEN = html.Div([
+    html.Div(id='df',
+             style={'display': 'none'},
+             children=df.to_json()),
+             ])
+app.layout = html.Div([
+    HIDDEN,
     html.Div([
         dcc.Dropdown(
             id='bar_plot_1_options',
@@ -91,14 +99,54 @@ app.layout = html.Div(children=[
             id='bar_plot_1',
             figure = make_figure(question[0])
         )
-    ])
-])
+    ]),
+    html.Div(
+        children=dash_table.DataTable(id='table',
+                            sort_action='native',
+                            columns=[{"name": str(i), "id": str(i)} for i in df.columns],
+                            data = df.to_dict('rows'),
+                            editable=True,
+                            filter_action="native",
+                            sort_mode="multi",
+                            column_selectable="single",
+                            row_selectable="multi",
+                            row_deletable=True,
+                            selected_columns=[],
+                            # selected_rows=[0, 1, 2],
+                            page_action="native",
+                            page_current= 0,
+                            style_table={
+                                    'maxHeight': '50ex',
+                                    'overflowY': 'scroll',
+                                    'width': '100%',
+                                    'minWidth': '100%',
+                                }
+                            ),
+                            ),
+    # html.Pre(id='selected-data'),
+], className='mini_container',
+   id='dashcontainer',
+   style={'display': 'block'},)
+
+# @app.callback(
+#     Output('selected-data', 'children'),
+#     [Input('bar_plot_1', 'selectedData')])
+# def display_selected_data(selectedData):
+#     return json.dumps(selectedData, indent=2)
 
 @app.callback(
-    Output('bar_plot_1', 'figure'),
-    [Input('bar_plot_1_options', 'value')])
-def update_download_link(question):
-    return make_figure(question)
+    [Output('bar_plot_1', 'figure'),
+     Output('bar_plot_1', 'selectedData')],
+    [Input('bar_plot_1_options', 'value'),
+    Input('table', 'derived_virtual_selected_rows'),
+    Input('table', 'derived_virtual_data'),])
+def update_download_link(question, rows, data):
+    if (data is not None) and (len(rows) == 0):
+        return [make_figure(question, pd.DataFrame(data)), None]
+    elif (data is not None) and (len(rows) > 0):
+        return [make_figure(question, pd.DataFrame(data).iloc[rows]), None]
+    else:
+        return [make_figure(question), None]
 
 
 
